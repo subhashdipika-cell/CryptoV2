@@ -1,10 +1,11 @@
 "use client";
 
-import { Bell, Blocks, ChartCandlestick, ChevronDown, Gauge, Hexagon, LayoutDashboard, Menu, Radar, Search, Settings2, Shapes, X } from "lucide-react";
+import { Bell, Blocks, ChartCandlestick, ChevronDown, Gauge, Hexagon, LayoutDashboard, Menu, Radar, Search, Settings2, Shapes, TrendingUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const tabs = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "overview", label: "Market overview", icon: TrendingUp },
   { id: "markets", label: "Markets", icon: Gauge },
   { id: "insights", label: "Intelligence", icon: Radar },
   { id: "patterns", label: "Patterns", icon: Shapes },
