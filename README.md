@@ -1,6 +1,6 @@
-# Krypto Terminal
+# CryptoV2 Autonomous Trading AI
 
-A dark, high-density cryptocurrency analytics terminal inspired by professional derivatives workstations. The current release is a runnable frontend and API vertical slice with deterministic market data. Exchange order routing is deliberately restricted to `PAPER` mode.
+A testnet-only autonomous crypto-options bot with a durable worker, explainable signal engine, risk governance, audit journal, and supporting analytics cockpit.
 
 ## Run locally
 
@@ -17,6 +17,10 @@ Open `http://localhost:3000`.
 
 ## Included modules
 
+- Autonomous Deribit Testnet worker evaluating completed 15-minute BTC/ETH candles
+- Explainable EMA, RSI, momentum, breakout, and ATR regime scoring
+- Long-call/long-put entries with maximum-premium, daily-trade, cooldown, position, stop-loss, and take-profit gates
+- Persistent decision/execution journal and emergency halt control
 - Executive market dashboard with bubble map and breadth metrics
 - Intelligence leaderboard and composable multi-variable screener
 - Automated pattern-scanner presentation with reusable detection primitives
@@ -30,7 +34,7 @@ Open `http://localhost:3000`.
 
 ## Important boundary
 
-All displayed prices, scores, patterns, simulations, and performance values are illustrative deterministic data. They are not profitability evidence or financial advice. Live exchange execution is not implemented and the order schema rejects any execution mode other than `PAPER`.
+The autonomous worker is hard-coded to Deribit Testnet and has no production URL or real-money route. It starts disabled and requires both `DERIBIT_AUTOBOT_TESTNET_ROUTING=true` and an explicit cockpit activation phrase. Strategy signals are not profitability evidence or financial advice. Validate in monitoring and Testnet forward testing before changing any policy.
 
 ## MT5 connection
 

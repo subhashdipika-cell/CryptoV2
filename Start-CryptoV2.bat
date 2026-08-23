@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-title CryptoV2 Terminal
+title CryptoV2 Autonomous AI
 cd /d "%~dp0"
 
 set "APP_HOST=127.0.0.1"
@@ -10,7 +10,7 @@ set "APP_URL=http://%APP_HOST%:%APP_PORT%"
 
 echo.
 echo  ==========================================
-echo           CryptoV2 Trading Terminal
+echo          CryptoV2 Autonomous AI Bot
 echo  ==========================================
 echo.
 
@@ -53,6 +53,7 @@ if not exist "node_modules\next\package.json" (
     echo.
 )
 
+call :ensure_autobot
 call :ensure_mt5_bridge
 
 powershell.exe -NoLogo -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -Uri '%APP_URL%' -TimeoutSec 2; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>&1
@@ -62,7 +63,7 @@ if not errorlevel 1 (
     exit /b 0
 )
 
-echo [MODE] MT5 DEMO DATA / REAL ACCOUNT ROUTING LOCKED
+echo [MODE] DERIBIT TESTNET AI / REAL ACCOUNT ROUTING NOT PRESENT
 echo [START] Launching CryptoV2 at %APP_URL%
 echo [STOP] Press Ctrl+C in this window to stop the application.
 echo.
@@ -81,6 +82,23 @@ if not "%APP_EXIT%"=="0" (
 )
 
 exit /b %APP_EXIT%
+
+:ensure_autobot
+if not exist "work" mkdir "work"
+powershell.exe -NoLogo -NoProfile -Command "$pidFile='%~dp0work\autobot.pid'; if (Test-Path $pidFile) { $botPid=Get-Content $pidFile -ErrorAction SilentlyContinue; if ($botPid -and (Get-Process -Id $botPid -ErrorAction SilentlyContinue)) { exit 0 } }; exit 1" >nul 2>&1
+if not errorlevel 1 (
+    echo [AI BOT] Autonomous worker is already running.
+    exit /b 0
+)
+echo [AI BOT] Starting Deribit Testnet worker in fail-closed monitoring mode...
+powershell.exe -NoLogo -NoProfile -Command "$process = Start-Process -FilePath 'node.exe' -ArgumentList @('%~dp0bot\deribit-autobot.mjs') -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%~dp0work\autobot.log' -RedirectStandardError '%~dp0work\autobot-error.log' -PassThru; $process.Id | Set-Content '%~dp0work\autobot.pid'" >nul 2>&1
+timeout /t 2 /nobreak >nul
+if exist "work\autobot.pid" (
+    echo [AI BOT] Worker started. Autonomous order routing remains locked until separately armed.
+) else (
+    echo [WARNING] AI worker did not start. Check work\autobot-error.log.
+)
+exit /b 0
 
 :ensure_mt5_bridge
 set "MT5_BRIDGE_URL=http://127.0.0.1:8765"
