@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluateSignal, riskDecision } from "./engine.mjs";
+import { evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RUNTIME = path.join(ROOT, "work", "autobot");
@@ -58,15 +58,16 @@ async function closeManagedPosition(position,currency,reason){
 async function evaluate() {
   loadEnv(); const cfg=config(),executionGate=process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING==="true",credentials=Boolean(process.env.DERIBIT_TESTNET_CLIENT_ID&&process.env.DERIBIT_TESTNET_CLIENT_SECRET);
   const today=new Date().toISOString().slice(0,10); state.tradesToday=(state.tradesToday??[]).filter(item=>String(item.timestamp).startsWith(today));
+  const policy=executionPolicy({executionGate,credentials,entryEnabled:cfg.enabled});
   const decisions=[]; let positionCount=0,orderCount=0;
   for(const currency of cfg.currencies){
     const chart=await candles(currency),signal=evaluateSignal(chart,cfg.minimumScore); let snapshot={positions:[],orders:[]};
     if(credentials)snapshot=await account(currency); const botOrders=snapshot.orders.filter(item=>String(item.label).startsWith("CV2-AI-")); const managed=snapshot.positions.filter(item=>(state.managedInstruments??[]).includes(item.instrument_name));
     positionCount+=managed.length;orderCount+=botOrders.length;
     if((!cfg.enabled||!executionGate)&&botOrders.length&&credentials)await cancelBotOrders(botOrders,currency);
-    if(cfg.enabled&&executionGate&&credentials){for(const position of managed){const pnlPct=position.average_price?((position.mark_price-position.average_price)/position.average_price)*100:0;const optionType=String(position.instrument_name).endsWith("-C")?"call":"put";const opposite=(optionType==="call"&&signal.action==="BUY_PUT")||(optionType==="put"&&signal.action==="BUY_CALL");const reason=pnlPct<=-cfg.stopLossPct?"STOP_LOSS":pnlPct>=cfg.takeProfitPct?"TAKE_PROFIT":opposite?"OPPOSITE_SIGNAL":null;if(reason&&await closeManagedPosition(position,currency,reason))state.managedInstruments=state.managedInstruments.filter(name=>name!==position.instrument_name);}}
+    if(policy.manageExits){for(const position of managed){const pnlPct=position.average_price?((position.mark_price-position.average_price)/position.average_price)*100:0;const optionType=String(position.instrument_name).endsWith("-C")?"call":"put";const opposite=(optionType==="call"&&signal.action==="BUY_PUT")||(optionType==="put"&&signal.action==="BUY_CALL");const reason=pnlPct<=-cfg.stopLossPct?"STOP_LOSS":pnlPct>=cfg.takeProfitPct?"TAKE_PROFIT":opposite?"OPPOSITE_SIGNAL":null;if(reason&&await closeManagedPosition(position,currency,reason))state.managedInstruments=state.managedInstruments.filter(name=>name!==position.instrument_name);}}
     const risk=riskDecision({signal,config:cfg,positions:managed.length,openOrders:botOrders.length,dailyTrades:state.tradesToday.length,lastTradeAt:state.lastTradeAt??0});
-    const decision={currency,...signal,risk:risk.reason,executionEligible:Boolean(cfg.enabled&&executionGate&&credentials&&risk.allowed)}; decisions.push(decision);
+    const decision={currency,...signal,risk:risk.reason,executionEligible:Boolean(policy.allowEntries&&risk.allowed)}; decisions.push(decision);
     if(decision.executionEligible){
       if(!config().enabled){decision.executionEligible=false;decision.risk="HALT_DETECTED_BEFORE_ORDER";continue;}
       const option=await chooseOption(currency,signal.action,signal.price,cfg.maxPremiumUsd);
@@ -78,7 +79,7 @@ async function evaluate() {
       if((result.trades??[]).length)state.managedInstruments=[...new Set([...(state.managedInstruments??[]),option.instrumentName])];
     }
   }
-  state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,executionGate,configured:credentials,enabled:cfg.enabled&&executionGate&&credentials,lastHeartbeat:new Date().toISOString(),lastEvaluation:new Date().toISOString(),nextEvaluation:new Date(Date.now()+60_000).toISOString(),decisions,positionCount,openOrderCount:orderCount,error:null,pid:process.pid};atomicWrite(STATE_PATH,state);
+  state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,executionGate,configured:credentials,enabled:policy.allowEntries,exitManagementActive:policy.manageExits,lastHeartbeat:new Date().toISOString(),lastEvaluation:new Date().toISOString(),nextEvaluation:new Date(Date.now()+60_000).toISOString(),decisions,positionCount,openOrderCount:orderCount,error:null,pid:process.pid};atomicWrite(STATE_PATH,state);
 }
 async function cycle(){try{await evaluate();}catch(error){state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,enabled:false,lastHeartbeat:new Date().toISOString(),error:error instanceof Error?error.message:String(error),pid:process.pid};atomicWrite(STATE_PATH,state);journal({type:"ENGINE_ERROR",message:state.error});}}
 if(!fs.existsSync(CONFIG_PATH))atomicWrite(CONFIG_PATH,DEFAULT_CONFIG);

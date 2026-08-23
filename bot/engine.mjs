@@ -50,3 +50,8 @@ export function riskDecision({ signal, config, positions, openOrders, dailyTrade
   if (now - lastTradeAt < config.cooldownMinutes * 60_000) return { allowed: false, reason: "COOLDOWN_ACTIVE" };
   return { allowed: true, reason: "RISK_CHECKS_PASSED" };
 }
+
+export function executionPolicy({ executionGate, credentials, entryEnabled }) {
+  const manageExits = Boolean(executionGate && credentials);
+  return { manageExits, allowEntries: Boolean(manageExits && entryEnabled) };
+}

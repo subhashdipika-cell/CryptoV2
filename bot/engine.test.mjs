@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateSignal, riskDecision } from "./engine.mjs";
+import { evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
 
 function candles(direction = 1) {
   const close = Array.from({ length: 81 }, (_, index) => 100 + direction * index * .4);
@@ -18,5 +18,11 @@ describe("autobot signal and risk engine", () => {
   });
   it("blocks entries during cooldown", () => {
     expect(riskDecision({ signal:{action:"BUY_PUT"}, config:{maxDailyTrades:2,cooldownMinutes:60}, positions:0, openOrders:0, dailyTrades:0, now:100_000,lastTradeAt:99_000 }).reason).toBe("COOLDOWN_ACTIVE");
+  });
+  it("continues exit management when new entries are paused", () => {
+    expect(executionPolicy({ executionGate:true, credentials:true, entryEnabled:false })).toEqual({ manageExits:true, allowEntries:false });
+  });
+  it("locks both paths when the Testnet server gate is off", () => {
+    expect(executionPolicy({ executionGate:false, credentials:true, entryEnabled:true })).toEqual({ manageExits:false, allowEntries:false });
   });
 });
