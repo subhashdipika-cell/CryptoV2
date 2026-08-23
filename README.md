@@ -26,9 +26,18 @@ Open `http://localhost:3000`.
 - Buffered 100 ms WebSocket client and Web Worker boundary
 - Versioned market and paper-order endpoints with Zod validation
 - Paper-only order ticket and fail-closed API schema
+- Local MT5 bridge for verified DEMO account data, positions, ticks, candles, and guarded order validation
 
 ## Important boundary
 
 All displayed prices, scores, patterns, simulations, and performance values are illustrative deterministic data. They are not profitability evidence or financial advice. Live exchange execution is not implemented and the order schema rejects any execution mode other than `PAPER`.
+
+## MT5 connection
+
+`Start-CryptoV2.bat` starts a loopback-only Python bridge at `127.0.0.1:8765` and connects to `D:\MT5IntelliTrade\terminal64.exe` by default. The dashboard then refreshes MT5 balance, equity, floating P&L, margin, positions, pending orders, and closed-deal balance history every five seconds.
+
+The bridge requires the official `MetaTrader5` Python package. The launcher creates `.venv` when a working Python runtime is available and installs the pinned package automatically. Override the terminal with `MT5_TERMINAL_PATH` when needed.
+
+Order validation is non-trading by default. `MT5_DEMO_ORDER_ROUTING=false` prevents `order_send`. If demo routing is deliberately enabled, the bridge still requires both MT5 `ACCOUNT_TRADE_MODE_DEMO` and a server name containing `demo`, terminal/account/expert permissions, fresh ticks, valid symbol volume steps, a mandatory stop loss, valid TP/SL direction, an idempotency UUID, and margin below the configured limit. The code has no real-account execution path.
 
 See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the production decomposition and API contracts.

@@ -15,6 +15,14 @@ Auth/API ──> PostgreSQL <── Strategy/Backtest service <── Historical
 
 This repository implements the browser application, reusable analytics primitives, and a Next.js BFF slice. At production scale, feed ingestion, pattern scanning, backtesting, and execution should run as isolated services so a slow analytical workload cannot delay risk checks or order acknowledgements.
 
+### Local MT5 adapter
+
+The Windows launcher starts `mt5_bridge/server.py` on loopback port `8765`. Next.js routes under `/api/v1/mt5/*` proxy the bridge, so the browser never talks directly to MT5 or reads terminal credentials. The bridge uses the account already authenticated in the selected terminal; CryptoV2 does not store the MT5 password.
+
+Read endpoints expose health, masked account identity, balance/equity/margin, positions, pending orders, symbol discovery, ticks, OHLCV bars, and closed-deal balance history. The dashboard polls snapshots every five seconds and visibly falls back to deterministic simulation if the bridge is unavailable.
+
+The write boundary is fail-closed: preview calls use `order_check` only; `order_send` is unreachable unless `MT5_DEMO_ORDER_ROUTING=true`, the account trade-mode enum is DEMO, the server name also proves DEMO, and every terminal, tick, volume, TP/SL, idempotency, and margin guard passes. Non-demo accounts are rejected regardless of environment configuration.
+
 ## 2. Suggested modular repository
 
 ```text
