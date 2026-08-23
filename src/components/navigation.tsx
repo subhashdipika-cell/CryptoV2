@@ -12,6 +12,7 @@ export const tabs = [
   { id: "patterns", label: "Patterns", icon: Shapes },
   { id: "options", label: "Options", icon: ChartCandlestick },
   { id: "cockpit", label: "Strategy", icon: Blocks },
+  { id: "settings", label: "Settings", icon: Settings2 },
 ] as const;
 export type TabId = (typeof tabs)[number]["id"];
 
@@ -23,9 +24,9 @@ export function Sidebar({ active, onChange, open, onClose }: { active: TabId; on
     </div>
     <nav className="flex-1 space-y-1 px-3 py-5">
       <div className="mb-3 px-3 font-mono text-[9px] uppercase tracking-[.22em] text-slate-600">Workspace</div>
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { onChange(id); onClose(); }} className={cn("group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-[13px] transition", active === id ? "bg-mint/[.09] text-mint" : "text-slate-500 hover:bg-white/[.03] hover:text-slate-200")}><Icon className="size-4" strokeWidth={1.7}/><span className="flex-1">{label}</span>{active === id && <span className="h-3 w-0.5 rounded-full bg-mint"/>}</button>)}
+      {tabs.filter(tab=>tab.id!=="settings").map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { onChange(id); onClose(); }} className={cn("group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-[13px] transition", active === id ? "bg-mint/[.09] text-mint" : "text-slate-500 hover:bg-white/[.03] hover:text-slate-200")}><Icon className="size-4" strokeWidth={1.7}/><span className="flex-1">{label}</span>{active === id && <span className="h-3 w-0.5 rounded-full bg-mint"/>}</button>)}
     </nav>
-    <div className="border-t border-line/70 p-3"><div className="mb-2 rounded-md border border-mint/10 bg-mint/[.035] p-3"><div className="mb-2 flex items-center gap-2"><span className="pulse-dot size-1.5 rounded-full bg-mint"/><span className="font-mono text-[9px] uppercase tracking-wider text-mint">AI worker installed</span></div><div className="text-[10px] leading-relaxed text-slate-600">Deribit Testnet<br/>Fail-closed monitoring</div></div><button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-xs text-slate-500 hover:text-slate-200"><Settings2 className="size-4"/>Settings</button></div>
+    <div className="border-t border-line/70 p-3"><div className="mb-2 rounded-md border border-mint/10 bg-mint/[.035] p-3"><div className="mb-2 flex items-center gap-2"><span className="pulse-dot size-1.5 rounded-full bg-mint"/><span className="font-mono text-[9px] uppercase tracking-wider text-mint">AI worker installed</span></div><div className="text-[10px] leading-relaxed text-slate-600">Deribit Testnet<br/>Fail-closed monitoring</div></div><button onClick={()=>{onChange("settings");onClose();}} className={cn("flex w-full items-center gap-3 rounded-md px-3 py-2 text-xs",active==="settings"?"bg-mint/[.09] text-mint":"text-slate-500 hover:text-slate-200")}><Settings2 className="size-4"/>Settings</button></div>
   </aside>;
 }
 
