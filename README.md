@@ -4,6 +4,10 @@ A dark, high-density cryptocurrency analytics terminal inspired by professional 
 
 ## Run locally
 
+On Windows, double-click `Start-CryptoV2.bat`. The launcher checks Node.js, installs missing dependencies, prevents duplicate servers, and opens the application at `http://127.0.0.1:3000`.
+
+Or run it manually:
+
 ```powershell
 npm.cmd install
 npm.cmd run dev
