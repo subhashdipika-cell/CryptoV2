@@ -85,7 +85,7 @@ exit /b %APP_EXIT%
 :ensure_mt5_bridge
 set "MT5_BRIDGE_URL=http://127.0.0.1:8765"
 if not defined MT5_TERMINAL_PATH set "MT5_TERMINAL_PATH=D:\MT5IntelliTrade\terminal64.exe"
-if not defined MT5_DEMO_ORDER_ROUTING set "MT5_DEMO_ORDER_ROUTING=false"
+if not defined MT5_DEMO_ORDER_ROUTING set "MT5_DEMO_ORDER_ROUTING=true"
 
 powershell.exe -NoLogo -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -Uri '%MT5_BRIDGE_URL%/health' -TimeoutSec 2; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>&1
 if not errorlevel 1 (

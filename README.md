@@ -38,6 +38,6 @@ All displayed prices, scores, patterns, simulations, and performance values are 
 
 The bridge requires the official `MetaTrader5` Python package. The launcher creates `.venv` when a working Python runtime is available and installs the pinned package automatically. Override the terminal with `MT5_TERMINAL_PATH` when needed.
 
-Order validation is non-trading by default. `MT5_DEMO_ORDER_ROUTING=false` prevents `order_send`. If demo routing is deliberately enabled, the bridge still requires both MT5 `ACCOUNT_TRADE_MODE_DEMO` and a server name containing `demo`, terminal/account/expert permissions, fresh ticks, valid symbol volume steps, a mandatory stop loss, valid TP/SL direction, an idempotency UUID, and margin below the configured limit. The code has no real-account execution path.
+The Windows launcher deliberately enables `MT5_DEMO_ORDER_ROUTING=true` for this project. Submission still requires both MT5 `ACCOUNT_TRADE_MODE_DEMO` and a server name containing `demo`, terminal/account/expert permissions, fresh ticks, valid symbol volume steps, a mandatory stop loss, valid TP/SL direction, an idempotency UUID, and margin below the configured limit. The code has no real-account execution path. Set `MT5_DEMO_ORDER_ROUTING=false` before launching to return to validation-only mode.
 
 See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the production decomposition and API contracts.
