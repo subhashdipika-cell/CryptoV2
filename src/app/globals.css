@@ -13,9 +13,12 @@ body {
     #070a0d;
   color: #e6edf3;
   font-family: var(--font-geist-sans), sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
 }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+input::placeholder { color: #7f8fa3; opacity: 1; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #090d11; }
 ::-webkit-scrollbar-thumb { background: #28333d; border-radius: 99px; }
@@ -30,6 +33,22 @@ button { cursor: pointer; }
   background-size: 36px 36px;
 }
 .number { font-variant-numeric: tabular-nums; }
+
+/* Readability floor for the dense terminal UI. */
+.text-\[7px\] { font-size: 11px !important; line-height: 15px !important; }
+.text-\[8px\] { font-size: 11px !important; line-height: 15px !important; }
+.text-\[9px\] { font-size: 12px !important; line-height: 16px !important; }
+.text-\[10px\] { font-size: 13px !important; line-height: 18px !important; }
+.text-\[11px\] { font-size: 14px !important; line-height: 20px !important; }
+.text-\[13px\] { font-size: 15px !important; line-height: 21px !important; }
+.text-\[15px\] { font-size: 17px !important; line-height: 23px !important; }
+
+/* Brighter muted text maintains hierarchy without sacrificing legibility. */
+.text-slate-700 { color: #718096 !important; }
+.text-slate-600 { color: #8796a8 !important; }
+.text-slate-500 { color: #a3b1c2 !important; }
+.text-slate-400 { color: #c0cad6 !important; }
+.text-slate-300 { color: #d8e0e9 !important; }
 .pulse-dot { box-shadow: 0 0 0 0 rgba(35,247,182,.45); animation: pulse 2s infinite; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(35,247,182,0); } 100% { box-shadow: 0 0 0 0 rgba(35,247,182,0); } }
 @keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(400%); } }

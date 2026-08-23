@@ -7,7 +7,7 @@ export default {
       colors: {
         ink: "#070a0d",
         panel: "#0d1117",
-        line: "#202a34",
+        line: "#2e3a46",
         mint: "#23f7b6",
         coral: "#ff5d72",
         amber: "#f6b94a",
