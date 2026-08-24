@@ -91,7 +91,7 @@ if not errorlevel 1 (
     exit /b 0
 )
 echo [AI BOT] Starting Deribit Testnet worker in fail-closed monitoring mode...
-powershell.exe -NoLogo -NoProfile -Command "$process = Start-Process -FilePath 'node.exe' -ArgumentList @('%~dp0bot\deribit-autobot.mjs') -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%~dp0work\autobot.log' -RedirectStandardError '%~dp0work\autobot-error.log' -PassThru; $process.Id | Set-Content '%~dp0work\autobot.pid'" >nul 2>&1
+powershell.exe -NoLogo -NoProfile -Command "$process = Start-Process -FilePath 'node.exe' -ArgumentList @('%~dp0bot\deribit-autobot-supervisor.mjs') -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%~dp0work\autobot.log' -RedirectStandardError '%~dp0work\autobot-error.log' -PassThru; $process.Id | Set-Content '%~dp0work\autobot.pid'" >nul 2>&1
 timeout /t 2 /nobreak >nul
 if exist "work\autobot.pid" (
     echo [AI BOT] Worker started. Autonomous order routing remains locked until separately armed.

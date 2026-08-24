@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
+import { atomicWriteJson } from "./state-store.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RUNTIME = path.join(ROOT, "work", "autobot");
@@ -20,8 +21,8 @@ function loadEnv() {
   }
 }
 function readJson(file, fallback) { try { return JSON.parse(fs.readFileSync(file,"utf8")); } catch { return fallback; } }
-function atomicWrite(file, value) { const temp=`${file}.${process.pid}.tmp`; fs.writeFileSync(temp,JSON.stringify(value,null,2)); fs.renameSync(temp,file); }
 function journal(event) { fs.appendFileSync(JOURNAL_PATH, `${JSON.stringify({ timestamp:new Date().toISOString(), ...event })}\n`); }
+function persistState(context) { try { atomicWriteJson(STATE_PATH,state); return true; } catch(error) { journal({type:"STATE_WRITE_ERROR",context,message:error instanceof Error?error.message:String(error)}); return false; } }
 function config() { return { ...DEFAULT_CONFIG, ...readJson(CONFIG_PATH, DEFAULT_CONFIG) }; }
 let state = readJson(STATE_PATH, { startedAt:new Date().toISOString(), tradesToday:[], managedInstruments:[] });
 let token = null;
@@ -79,9 +80,9 @@ async function evaluate() {
       if((result.trades??[]).length)state.managedInstruments=[...new Set([...(state.managedInstruments??[]),option.instrumentName])];
     }
   }
-  state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,executionGate,configured:credentials,enabled:policy.allowEntries,exitManagementActive:policy.manageExits,lastHeartbeat:new Date().toISOString(),lastEvaluation:new Date().toISOString(),nextEvaluation:new Date(Date.now()+60_000).toISOString(),decisions,positionCount,openOrderCount:orderCount,error:null,pid:process.pid};atomicWrite(STATE_PATH,state);
+  state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,executionGate,configured:credentials,enabled:policy.allowEntries,exitManagementActive:policy.manageExits,lastHeartbeat:new Date().toISOString(),lastEvaluation:new Date().toISOString(),nextEvaluation:new Date(Date.now()+60_000).toISOString(),decisions,positionCount,openOrderCount:orderCount,error:null,pid:process.pid};persistState("EVALUATION");
 }
-async function cycle(){try{await evaluate();}catch(error){state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,enabled:false,lastHeartbeat:new Date().toISOString(),error:error instanceof Error?error.message:String(error),pid:process.pid};atomicWrite(STATE_PATH,state);journal({type:"ENGINE_ERROR",message:state.error});}}
-if(!fs.existsSync(CONFIG_PATH))atomicWrite(CONFIG_PATH,DEFAULT_CONFIG);
+async function cycle(){try{await evaluate();}catch(error){state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,enabled:false,lastHeartbeat:new Date().toISOString(),error:error instanceof Error?error.message:String(error),pid:process.pid};persistState("ENGINE_ERROR");journal({type:"ENGINE_ERROR",message:state.error});}}
+if(!fs.existsSync(CONFIG_PATH))atomicWriteJson(CONFIG_PATH,DEFAULT_CONFIG);
 loadEnv();journal({type:"WORKER_STARTED",pid:process.pid,executionGate:process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING==="true"});
-await cycle();setInterval(()=>void cycle(),60_000);setInterval(()=>{state.lastHeartbeat=new Date().toISOString();state.workerOnline=true;atomicWrite(STATE_PATH,state);},10_000);
+await cycle();setInterval(()=>void cycle(),60_000);setInterval(()=>{state.lastHeartbeat=new Date().toISOString();state.workerOnline=true;persistState("HEARTBEAT");},10_000);
