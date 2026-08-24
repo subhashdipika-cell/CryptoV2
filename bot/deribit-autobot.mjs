@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
+import { dailyTradeCountForCurrency, evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
 import { atomicWriteJson } from "./state-store.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -10,7 +10,7 @@ const CONFIG_PATH = path.join(RUNTIME, "config.json");
 const STATE_PATH = path.join(RUNTIME, "state.json");
 const JOURNAL_PATH = path.join(RUNTIME, "journal.jsonl");
 const TESTNET = "https://test.deribit.com/api/v2";
-const DEFAULT_CONFIG = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:2, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50 };
+const DEFAULT_CONFIG = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:4, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50 };
 fs.mkdirSync(RUNTIME, { recursive:true });
 
 function loadEnv() {
@@ -67,7 +67,8 @@ async function evaluate() {
     positionCount+=managed.length;orderCount+=botOrders.length;
     if((!cfg.enabled||!executionGate)&&botOrders.length&&credentials)await cancelBotOrders(botOrders,currency);
     if(policy.manageExits){for(const position of managed){const pnlPct=position.average_price?((position.mark_price-position.average_price)/position.average_price)*100:0;const optionType=String(position.instrument_name).endsWith("-C")?"call":"put";const opposite=(optionType==="call"&&signal.action==="BUY_PUT")||(optionType==="put"&&signal.action==="BUY_CALL");const reason=pnlPct<=-cfg.stopLossPct?"STOP_LOSS":pnlPct>=cfg.takeProfitPct?"TAKE_PROFIT":opposite?"OPPOSITE_SIGNAL":null;if(reason&&await closeManagedPosition(position,currency,reason))state.managedInstruments=state.managedInstruments.filter(name=>name!==position.instrument_name);}}
-    const risk=riskDecision({signal,config:cfg,positions:managed.length,openOrders:botOrders.length,dailyTrades:state.tradesToday.length,lastTradeAt:state.lastTradeAt??0});
+    const dailyTrades=dailyTradeCountForCurrency(state.tradesToday,currency);
+    const risk=riskDecision({signal,config:cfg,positions:managed.length,openOrders:botOrders.length,dailyTrades,lastTradeAt:state.lastTradeAt??0});
     const decision={currency,...signal,risk:risk.reason,executionEligible:Boolean(policy.allowEntries&&risk.allowed)}; decisions.push(decision);
     if(decision.executionEligible){
       if(!config().enabled){decision.executionEligible=false;decision.risk="HALT_DETECTED_BEFORE_ORDER";continue;}

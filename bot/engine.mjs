@@ -51,6 +51,11 @@ export function riskDecision({ signal, config, positions, openOrders, dailyTrade
   return { allowed: true, reason: "RISK_CHECKS_PASSED" };
 }
 
+export function dailyTradeCountForCurrency(trades, currency) {
+  if (!Array.isArray(trades)) return 0;
+  return trades.filter((trade) => trade?.currency === currency).length;
+}
+
 export function executionPolicy({ executionGate, credentials, entryEnabled }) {
   const manageExits = Boolean(executionGate && credentials);
   return { manageExits, allowEntries: Boolean(manageExits && entryEnabled) };

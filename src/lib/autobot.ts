@@ -7,7 +7,7 @@ const runtime = path.join(process.cwd(), "work", "autobot");
 const configPath = path.join(runtime, "config.json");
 const statePath = path.join(runtime, "state.json");
 const journalPath = path.join(runtime, "journal.jsonl");
-export const defaultBotConfig = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:2, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50 };
+export const defaultBotConfig = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:4, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50 };
 export const botConfigSchema = z.object({
   enabled:z.boolean(), currencies:z.array(z.enum(["BTC","ETH"])).min(1).max(2), minimumScore:z.number().int().min(65).max(95),
   maxPremiumUsd:z.number().min(5).max(500), maxDailyTrades:z.number().int().min(1).max(5), cooldownMinutes:z.number().int().min(15).max(1440),
