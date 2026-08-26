@@ -1,0 +1,13 @@
+{
+  "strategy": { "id": "SWING-TREND-BREAKOUT-V1", "timeframe": "6H", "minimumScore": 75, "breakoutBars": 30, "stopAtr": 2, "targetAtr": 3.5, "maxHoldingBars": 42, "cooldownBars": 4, "feeBpsPerSide": 5, "slippageBpsPerSide": 5 },
+  "generatedAt": "2026-08-26T15:50:03.400Z",
+  "dataSource": "Deribit Testnet public BTC/ETH perpetual 6H OHLC",
+  "executionModel": "Fresh 30-bar breakout on completed 6H close; entry/exit at next bar open; stop-first when stop and target share a bar",
+  "costModel": { "feeBpsPerSide": 5, "slippageBpsPerSide": 5 },
+  "scope": "Directional underlying proxy only; not an options premium or volatility replay",
+  "assets": [
+    { "currency": "BTC", "candles": 2921, "from": "2024-08-26T14:00:00.000Z", "to": "2026-08-26T14:00:00.000Z", "full": { "metrics": { "tradeCount": 40, "wins": 13, "losses": 27, "winRatePct": 32.5, "expectancyPct": -1.7259755759717763, "profitFactor": 0.5109063863812271, "totalCompoundedReturnPct": -53.356938177077055, "maxDrawdownPct": 65.36887964709182, "averageHoldingBars": 10.925, "longTrades": 19, "shortTrades": 21 } }, "holdout": { "from": "2025-08-01T14:00:00.000Z", "metrics": { "tradeCount": 24, "wins": 10, "losses": 14, "winRatePct": 41.66666666666667, "expectancyPct": -0.3976362275834695, "profitFactor": 0.8503451325038767, "totalCompoundedReturnPct": -12.152155258841058, "maxDrawdownPct": 34.775523623975936, "averageHoldingBars": 12.166666666666666, "longTrades": 11, "shortTrades": 13 } } },
+    { "currency": "ETH", "candles": 2921, "from": "2024-08-26T14:00:00.000Z", "to": "2026-08-26T14:00:00.000Z", "full": { "metrics": { "tradeCount": 49, "wins": 19, "losses": 30, "winRatePct": 38.775510204081634, "expectancyPct": -0.33607444462475294, "profitFactor": 0.9116202091256902, "totalCompoundedReturnPct": -27.55416391437846, "maxDrawdownPct": 45.497200728850466, "averageHoldingBars": 15.857142857142858, "longTrades": 23, "shortTrades": 26 } }, "holdout": { "from": "2025-08-01T14:00:00.000Z", "metrics": { "tradeCount": 28, "wins": 10, "losses": 18, "winRatePct": 35.714285714285715, "expectancyPct": -0.8707984014640233, "profitFactor": 0.7463592557765948, "totalCompoundedReturnPct": -26.022315649193484, "maxDrawdownPct": 43.86313076827897, "averageHoldingBars": 17.25, "longTrades": 14, "shortTrades": 14 } } }
+  ],
+  "promotion": { "eligibleForTestnetForward": false, "liveAuthorized": false, "metrics": { "tradeCount": 89, "winRatePct": 35.95505617977528, "expectancyPct": -0.960749110398696, "profitFactor": 0.7388991917421109, "maxDrawdownPct": 65.36887964709182 }, "blockers": ["NON_POSITIVE_EXPECTANCY", "PROFIT_FACTOR_BELOW_1_15", "DRAWDOWN_ABOVE_15_PERCENT"], "routingEnabled": false, "status": "RESEARCH_BLOCKED" }
+}

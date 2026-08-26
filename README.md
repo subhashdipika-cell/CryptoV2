@@ -27,6 +27,7 @@ Open `http://localhost:3000`.
 - Cross-asset correlation matrix and normalized divergence view
 - Live Deribit Testnet BTC/ETH option chains, OI, IV skew, Greeks, guarded single-leg tickets, native atomic combo builder, and payoff chart
 - Strategy cockpit with risk and execution workflow
+- Non-routable 6-hour swing research engine with completed-candle signals, next-bar execution, cost-aware replay, recent-half validation, and explicit promotion blockers
 - Buffered 100 ms WebSocket client and Web Worker boundary
 - Versioned market and paper-order endpoints with Zod validation
 - Paper-only order ticket and fail-closed API schema
@@ -45,6 +46,16 @@ The bridge requires the official `MetaTrader5` Python package. The launcher crea
 The Windows launcher deliberately enables `MT5_DEMO_ORDER_ROUTING=true` for this project. Submission still requires both MT5 `ACCOUNT_TRADE_MODE_DEMO` and a server name containing `demo`, terminal/account/expert permissions, fresh ticks, valid symbol volume steps, a mandatory stop loss, valid TP/SL direction, an idempotency UUID, and margin below the configured limit. The code has no real-account execution path. Set `MT5_DEMO_ORDER_ROUTING=false` before launching to return to validation-only mode.
 
 See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the production decomposition and API contracts.
+
+## Swing research backtest
+
+Run the read-only directional proxy backtest with:
+
+```powershell
+node scripts/run-swing-backtest.mjs --days=730 --summary
+```
+
+The strategy is deliberately separate from the autonomous worker and has no routing path. The committed report is visible on the Strategy page. It must clear sample, expectancy, profit-factor, and drawdown gates before Testnet forward testing can be considered; even a passing directional proxy would still require an option-premium replay including IV, delta, theta, spreads, and strike liquidity.
 
 ## Deribit Testnet options
 
