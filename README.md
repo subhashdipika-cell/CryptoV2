@@ -29,6 +29,7 @@ Open `http://localhost:3000`.
 - Strategy cockpit with risk and execution workflow
 - Non-routable 6-hour swing research engine with completed-candle signals, next-bar execution, cost-aware replay, recent-half validation, and explicit promotion blockers
 - Read-only Deribit Testnet option snapshot archive for real bid/ask, IV, OI, Greeks, and liquidity replay evidence
+- Guarded autonomous options allocator for iron condors, event/squeeze straddles, and directional debit spreads using atomic Testnet combo books
 - Buffered 100 ms WebSocket client and Web Worker boundary
 - Versioned market and paper-order endpoints with Zod validation
 - Paper-only order ticket and fail-closed API schema
@@ -66,6 +67,21 @@ The regime walk-forward report selects from 24 predeclared policies using only t
 `Start-CryptoV2.bat` also starts a hidden, supervised market-data recorder. Every five minutes it samples paired calls and puts around the BTC and ETH at-the-money strikes for the two nearest expiries between 7 and 60 days. It records actual Testnet bid/ask prices and sizes, marks, IV, open interest, volume, interest rates, and ticker Greeks under `work\option-snapshots\YYYY-MM-DD.jsonl`.
 
 The recorder calls public Deribit Testnet methods only. It never reads credentials and has no private API or order-routing method. Runtime health and archive coverage are available at `GET /api/v1/autobot/option-snapshots` and on the Strategy page. Set `DERIBIT_OPTION_SNAPSHOT_INTERVAL_MS` to change the interval; values below 60 seconds are rejected.
+
+## Autonomous options strategy allocator
+
+The Autonomous Bot page contains six selectable strategy families. The original Trend–Momentum strategy remains the only enabled strategy after upgrade, so installing this code does not silently change the running portfolio. Pause new entries before changing the enabled set, save the policy, and explicitly re-arm Deribit Testnet.
+
+- `IRON_CONDOR` selects approximately 0.15–0.20 delta short wings, buys farther wings, requires a range regime and IV percentile of at least 70, caps projected loss, takes 50% of maximum profit, and exits on a short-strike breach.
+- `LONG_STRADDLE` buys the ATM call and put only for an authenticated scheduled event or low-IV squeeze. It manages both legs with a portfolio-level trailing exit and time stop.
+- `VERTICAL_DEBIT_SPREAD` buys an approximately 0.50-delta option and sells an approximately 0.30-delta option in the confirmed direction, targeting 80% of modeled maximum profit.
+- `SHORT_STRADDLE_HEDGED` and `COLLATERAL_CALL` are implemented as live planners but intentionally monitor-only. Naked short volatility cannot route until an independently reconciled perpetual hedge executor exists. Deribit options are cash-settled, so a conventional physically covered call cannot be proven from a coin balance.
+
+All routable multi-leg entries use a Deribit combo book and fill-or-kill order, and are preceded by fresh-data, IV-history, delta, spread, open-interest, maximum-loss, daily-cap, cooldown, position, open-order, and portfolio-margin gates. The default archive requirement is 288 prior observations (about 24 hours at five-minute cadence). This evidence requirement is availability gating, not profitability evidence.
+
+### Authenticated event webhook
+
+Set a high-entropy `CRYPTOV2_EVENT_WEBHOOK_SECRET` in `.env.local`, restart the application, and submit high-impact future events to `POST /api/v1/autobot/events` with that value in the `x-cryptov2-event-secret` header. Events must start in the future, be no more than 30 days away, identify BTC and/or ETH, and include an expiry after the start. Without the server-side secret, event submission and event-driven entries stay unavailable.
 
 ## Deribit Testnet options
 

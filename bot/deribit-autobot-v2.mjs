@@ -4,15 +4,18 @@ import { fileURLToPath } from "node:url";
 import { dailyTradeCountForCurrency, evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
 import { errorMessage, filledAmount, findActivePosition, isAmbiguousTransportError } from "./order-state.mjs";
 import { atomicWriteJson } from "./state-store.mjs";
+import { buildStrategyCandidates, DEFAULT_OPTIONS_STRATEGY_CONFIG, snapshotAtmIv, strategyExitDecision } from "../src/lib/options-strategy-engine.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RUNTIME = path.join(ROOT, "work", "autobot");
 const CONFIG_PATH = path.join(RUNTIME, "config.json");
 const STATE_PATH = path.join(RUNTIME, "state.json");
 const JOURNAL_PATH = path.join(RUNTIME, "journal.jsonl");
+const EVENTS_PATH = path.join(RUNTIME, "events.json");
+const SNAPSHOT_RUNTIME = path.join(ROOT, "work", "option-snapshots");
 const TESTNET = "https://test.deribit.com/api/v2";
 const RPC_TIMEOUT_MS = 15_000;
-const DEFAULT_CONFIG = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:4, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50 };
+const DEFAULT_CONFIG = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:4, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50, ...DEFAULT_OPTIONS_STRATEGY_CONFIG };
 fs.mkdirSync(RUNTIME, { recursive:true });
 
 function loadEnv() {
@@ -39,11 +42,30 @@ state.pendingOrders ??= [];
 state.currencyHealth ??= {};
 state.currencyPositionCounts ??= {};
 state.currencyOrderCounts ??= {};
+state.managedStrategies ??= [];
 state.skippedCycles ??= 0;
 state.totalErrorCycles ??= 0;
 state.consecutiveErrorCycles ??= 0;
 let token = null;
 let cycleInFlight = false;
+
+function loadStrategyContext(limit=2_000){
+  const snapshots=[];
+  try{
+    const files=fs.readdirSync(SNAPSHOT_RUNTIME).filter(name=>name.endsWith(".jsonl")).sort().reverse();
+    for(const file of files){
+      const lines=fs.readFileSync(path.join(SNAPSHOT_RUNTIME,file),"utf8").trim().split(/\r?\n/).filter(Boolean).reverse();
+      for(const line of lines){try{snapshots.push(JSON.parse(line));}catch{}if(snapshots.length>=limit)break;}
+      if(snapshots.length>=limit)break;
+    }
+  }catch{}
+  let events=[];try{events=readJson(EVENTS_PATH,[]).filter(event=>Date.parse(event.expiresAt)>Date.now());}catch{}
+  return{snapshots:snapshots.reverse(),events};
+}
+function strategyCandidates(currency,decision,cfg,context){
+  const latest=context.snapshots.at(-1),fresh=latest&&Date.now()-Number(latest.capturedAt)<=10*60_000,current=fresh?latest.currencies?.find(item=>item.currency===currency):null,currencySnapshots=context.snapshots.map(snapshot=>snapshot.currencies?.find(item=>item.currency===currency)).filter(Boolean),ivHistory=currencySnapshots.slice(0,-1).map(snapshot=>snapshotAtmIv(snapshot)).filter(Number.isFinite);
+  return buildStrategyCandidates({currency,snapshot:current,ivHistory,decision,events:context.events,config:cfg});
+}
 
 async function rpc(method, params={}, accessToken=null) {
   const attempts=isRetryableRead(method)?3:1;
@@ -88,10 +110,10 @@ async function chooseOption(currency,action,spot,maximumPremium){
 
 async function orderByLabel(currency,label){
   const access=await auth();
-  const [open,history]=await Promise.all([
-    rpc("private/get_open_orders_by_currency",{currency,kind:"option"},access),
-    rpc("private/get_order_history_by_currency",{currency,kind:"option",count:100,include_unfilled:true},access),
-  ]);
+  const results=await Promise.all(["option","option_combo"].flatMap(kind=>[
+    rpc("private/get_open_orders_by_currency",{currency,kind},access).catch(()=>[]),
+    rpc("private/get_order_history_by_currency",{currency,kind,count:100,include_unfilled:true},access).catch(()=>[]),
+  ])),open=[...results[0],...results[2]],history=[...results[1],...results[3]];
   const order=[...open,...history].find(item=>item.label===label);
   if(!order)return null;
   let trades=[];
@@ -108,8 +130,8 @@ function addPendingOrder(pending){
 }
 function clearPendingOrder(label){state.pendingOrders=(state.pendingOrders??[]).filter(item=>item.label!==label);persistState("ORDER_RESOLVED");}
 
-async function submitPrivateOrder(method,params,{currency,label,instrumentName,side}){
-  addPendingOrder({currency,label,instrumentName,side,amount:params.amount,createdAt:new Date().toISOString(),checks:0});
+async function submitPrivateOrder(method,params,{currency,label,instrumentName,side,legInstruments=[],strategyIntent=null}){
+  addPendingOrder({currency,label,instrumentName,side,legInstruments,strategyIntent,amount:params.amount,createdAt:new Date().toISOString(),checks:0});
   try{
     const result=await privateRpc(method,params);
     clearPendingOrder(label);
@@ -130,10 +152,11 @@ async function reconcilePendingOrders(){
     try{
       const found=await orderByLabel(pending.currency,pending.label);
       const snapshot=await account(pending.currency);
-      const position=findActivePosition(snapshot.positions,pending.instrumentName);
+      const trackedNames=pending.legInstruments?.length?pending.legInstruments:[pending.instrumentName],positions=trackedNames.map(name=>findActivePosition(snapshot.positions,name)).filter(Boolean),position=positions[0]??null,foundFill=filledAmount(found??{});
+      if(foundFill>0&&((pending.side==="buy"&&!position)||(pending.side==="sell"&&position))){unresolved.push({...pending,checks:Number(pending.checks??0)+1,lastCheckedAt:new Date().toISOString(),lastError:"FILLED_ORDER_POSITION_RECONCILIATION_PENDING"});continue;}
       if(found||position){
-        if(pending.side==="buy"&&position)state.managedInstruments=[...new Set([...(state.managedInstruments??[]),pending.instrumentName])];
-        if(pending.side==="sell"&&!position)state.managedInstruments=(state.managedInstruments??[]).filter(name=>name!==pending.instrumentName);
+        if(pending.side==="buy"&&position){state.managedInstruments=[...new Set([...(state.managedInstruments??[]),...trackedNames])];if(pending.strategyIntent&&!(state.managedStrategies??[]).some(item=>item.comboName===pending.instrumentName))state.managedStrategies=[...(state.managedStrategies??[]),pending.strategyIntent];}
+        if(pending.side==="sell"&&!position){state.managedInstruments=(state.managedInstruments??[]).filter(name=>!trackedNames.includes(name));if(pending.strategyIntent)state.managedStrategies=(state.managedStrategies??[]).filter(item=>item.comboName!==pending.instrumentName);}
         journal({type:"PENDING_ORDER_RECONCILED",currency:pending.currency,instrumentName:pending.instrumentName,label:pending.label,positionRecovered:Boolean(position),orderId:found?.order?.order_id});
         continue;
       }
@@ -168,16 +191,51 @@ async function closeManagedPosition(position,currency,reason){
   return{fullyClosed,remainingSize,filledAmount:fill};
 }
 
-async function evaluateCurrency(currency,cfg,policy,reconciliationRequired){
+function roundToTick(value,tickSize){const precision=(String(tickSize).split(".")[1]??"").length;return Number((Math.round(value/tickSize)*tickSize).toFixed(precision));}
+async function verifyProjectedMargin(currency,plan,cfg){
+  const simulatedPositions=Object.fromEntries(plan.legs.map(item=>[item.instrumentName,(item.direction==="buy"?1:-1)*plan.amount*item.ratio]));
+  const result=await privateRpc("private/simulate_portfolio",{currency,add_positions:true,simulated_positions:simulatedPositions});
+  const margin=Number(result.margin_balance),projected=Number(result.projected_initial_margin),available=Number(result.available_funds),utilization=margin>0?projected/margin*100:Infinity;
+  if(!Number.isFinite(available)||available<=0)throw new Error("PROJECTED_AVAILABLE_FUNDS_REQUIRED");
+  if(!Number.isFinite(utilization)||utilization>cfg.maxMarginUtilizationPct)throw new Error(`PROJECTED_MARGIN_CAP:${utilization.toFixed(2)}%`);
+  return{availableFunds:available,projectedInitialMargin:projected,marginUtilizationPct:utilization};
+}
+async function submitStrategyCombo(candidate,currency,cfg){
+  const plan=candidate.plan,legInstruments=plan.legs.map(item=>item.instrumentName),margin=await verifyProjectedMargin(currency,plan,cfg);
+  const combo=await privateRpc("private/create_combo",{trades:plan.legs.map(item=>({instrument_name:item.instrumentName,amount:item.ratio,direction:item.direction}))}),comboName=combo.id??combo.instrument_name;
+  if(!comboName)throw new Error("COMBO_INSTRUMENT_NOT_RETURNED");
+  const instrument=await rpc("public/get_instrument",{instrument_name:comboName}),price=roundToTick(plan.entryPrice,instrument.tick_size),label=`CV2-AI-STRAT-${currency}-${Date.now()}`.slice(0,64),managed={strategyId:candidate.id,currency,comboName,legs:plan.legs,amount:plan.amount,entryPrice:price,entryValueUsd:plan.entryValueUsd,maxLossUsd:plan.maxLossUsd??plan.entryValueUsd,maxProfitUsd:plan.maxProfitUsd??null,shortStrikes:plan.shortStrikes??[],planDirection:plan.direction??null,openedAt:new Date().toISOString(),expiresAt:plan.expiry,tickSize:instrument.tick_size,peakPnlUsd:0,margin};
+  const result=await submitPrivateOrder("private/buy",{instrument_name:comboName,amount:plan.amount,type:"limit",price,time_in_force:"fill_or_kill",label},{currency,label,instrumentName:comboName,side:"buy",legInstruments,strategyIntent:managed}),fill=filledAmount(result),order=result.order??{};
+  if(fill>0){
+    state.managedStrategies=[...(state.managedStrategies??[]),managed];state.managedInstruments=[...new Set([...(state.managedInstruments??[]),...legInstruments])];state.lastTradeAt=Date.now();state.tradesToday.push({timestamp:new Date().toISOString(),currency,instrumentName:comboName,strategyId:candidate.id,orderId:order.order_id});
+    journal({type:"AUTONOMOUS_STRATEGY_ENTRY",currency,strategyId:candidate.id,comboName,legs:plan.legs,price,amount:plan.amount,maxLossUsd:managed.maxLossUsd,margin,filledAmount:fill,orderId:order.order_id,orderState:order.order_state,label,reconciled:Boolean(result.reconciled)});
+  }else journal({type:"AUTONOMOUS_STRATEGY_ENTRY_UNFILLED",currency,strategyId:candidate.id,comboName,price,orderId:order.order_id,orderState:order.order_state,label});
+  return fill>0;
+}
+async function manageStrategyPosition(strategy,signal,cfg){
+  const tickers=await Promise.all(strategy.legs.map(item=>rpc("public/ticker",{instrument_name:item.instrumentName}))),quotes=strategy.legs.map((item,index)=>({...item,bid:Number(tickers[index].best_bid_price),ask:Number(tickers[index].best_ask_price),indexPrice:Number(tickers[index].index_price)}));
+  if(quotes.some(item=>!(item.bid>=0)||!(item.ask>0)))return{closed:false,reason:"STRATEGY_EXIT_QUOTES_UNAVAILABLE"};
+  const liquidationPrice=quotes.reduce((sum,item)=>sum+(item.direction==="buy"?item.bid:-item.ask),0),spot=quotes.find(item=>Number.isFinite(item.indexPrice))?.indexPrice??0,pnlUsd=(liquidationPrice-strategy.entryPrice)*spot*strategy.amount,ageHours=(Date.now()-Date.parse(strategy.openedAt))/3_600_000;
+  strategy.peakPnlUsd=Math.max(Number(strategy.peakPnlUsd??0),pnlUsd);
+  const reason=strategyExitDecision({strategy,pnlUsd,spot,signal,ageHours,maxStrategyHours:cfg.maxStrategyHours});
+  if(!reason)return{closed:false,pnlUsd,liquidationPrice};
+  const price=roundToTick(liquidationPrice,strategy.tickSize),label=`CV2-AI-STRAT-EXIT-${strategy.currency}-${Date.now()}`.slice(0,64),legInstruments=strategy.legs.map(item=>item.instrumentName),result=await submitPrivateOrder("private/sell",{instrument_name:strategy.comboName,amount:strategy.amount,type:"limit",price,time_in_force:"fill_or_kill",reduce_only:true,label},{currency:strategy.currency,label,instrumentName:strategy.comboName,side:"sell",legInstruments,strategyIntent:strategy}),fill=filledAmount(result),closed=fill>0;
+  journal({type:closed?"AUTONOMOUS_STRATEGY_EXIT":"AUTONOMOUS_STRATEGY_EXIT_UNFILLED",currency:strategy.currency,strategyId:strategy.strategyId,comboName:strategy.comboName,reason,pnlUsd,price,filledAmount:fill,orderId:result.order?.order_id,orderState:result.order?.order_state,label,reconciled:Boolean(result.reconciled)});
+  if(closed){state.managedStrategies=(state.managedStrategies??[]).filter(item=>item!==strategy);state.managedInstruments=(state.managedInstruments??[]).filter(name=>!legInstruments.includes(name));}
+  return{closed,pnlUsd,reason};
+}
+
+async function evaluateCurrency(currency,cfg,policy,reconciliationRequired,strategyContext){
   const chart=await candles(currency),signal=evaluateSignal(chart,cfg.minimumScore);
   let snapshot={positions:[],orders:[]};
   if(policy.manageExits)snapshot=await account(currency);
   const botOrders=snapshot.orders.filter(item=>String(item.label).startsWith("CV2-AI-"));
-  const managed=snapshot.positions.filter(item=>Math.abs(Number(item.size??0))>0&&(state.managedInstruments??[]).includes(item.instrument_name));
+  const managed=snapshot.positions.filter(item=>Math.abs(Number(item.size??0))>0&&(state.managedInstruments??[]).includes(item.instrument_name)),structures=(state.managedStrategies??[]).filter(item=>item.currency===currency),structureLegs=new Set(structures.flatMap(item=>item.legs.map(leg=>leg.instrumentName))),singlePositions=managed.filter(item=>!structureLegs.has(item.instrument_name));
   if((!cfg.enabled||!policy.allowEntries)&&botOrders.length)await cancelBotOrders(botOrders,currency);
   let exitTriggered=false;
   if(policy.manageExits){
-    for(const position of managed){
+    for(const strategy of [...structures]){const result=await manageStrategyPosition(strategy,signal,cfg);if(result.closed)exitTriggered=true;}
+    for(const position of singlePositions){
       const pnlPct=position.average_price?((position.mark_price-position.average_price)/position.average_price)*100:0;
       const optionType=String(position.instrument_name).endsWith("-C")?"call":"put";
       const opposite=(optionType==="call"&&signal.action==="BUY_PUT")||(optionType==="put"&&signal.action==="BUY_CALL");
@@ -189,11 +247,12 @@ async function evaluateCurrency(currency,cfg,policy,reconciliationRequired){
       }
     }
   }
-  const dailyTrades=dailyTradeCountForCurrency(state.tradesToday,currency);
-  const risk=exitTriggered?{allowed:false,reason:"EXIT_EXECUTED_WAIT_NEXT_CYCLE"}:reconciliationRequired?{allowed:false,reason:"ORDER_RECONCILIATION_REQUIRED"}:riskDecision({signal,config:cfg,positions:managed.length,openOrders:botOrders.length,dailyTrades,lastTradeAt:state.lastTradeAt??0});
-  const decision={currency,...signal,risk:risk.reason,executionEligible:Boolean(policy.allowEntries&&risk.allowed)};
+  const candidates=strategyCandidates(currency,signal,cfg,strategyContext),priority=["LONG_STRADDLE","VERTICAL_DEBIT_SPREAD","IRON_CONDOR"],selected=priority.map(id=>candidates.find(item=>item.id===id&&item.executionEligible)).find(Boolean),trendEnabled=cfg.enabledStrategies.includes("TREND_LONG_OPTION"),riskSignal=selected?{...signal,action:"STRATEGY_ENTRY",reason:`${selected.id}_READY`}:trendEnabled?signal:{...signal,action:"HOLD",reason:candidates.find(item=>item.enabled)?.blockers?.[0]??"NO_STRATEGY_READY"},dailyTrades=dailyTradeCountForCurrency(state.tradesToday,currency);
+  const risk=exitTriggered?{allowed:false,reason:"EXIT_EXECUTED_WAIT_NEXT_CYCLE"}:reconciliationRequired?{allowed:false,reason:"ORDER_RECONCILIATION_REQUIRED"}:riskDecision({signal:riskSignal,config:cfg,positions:managed.length,openOrders:botOrders.length,dailyTrades,lastTradeAt:state.lastTradeAt??0});
+  const candidateStatus=candidates.map(item=>({id:item.id,enabled:item.enabled,status:item.status,executionEligible:item.executionEligible,blockers:item.blockers,evidence:item.evidence})),decision={currency,...signal,action:selected?`ENTER_${selected.id}`:riskSignal.action,strategyId:selected?.id??(trendEnabled?"TREND_LONG_OPTION":null),strategyCandidates:candidateStatus,risk:risk.reason,executionEligible:Boolean(policy.allowEntries&&risk.allowed)};
   if(decision.executionEligible){
     if(!config().enabled){decision.executionEligible=false;decision.risk="HALT_DETECTED_BEFORE_ORDER";return{decision,positionCount:managed.length,openOrderCount:botOrders.length};}
+    if(selected){await submitStrategyCombo(selected,currency,cfg);return{decision,positionCount:managed.length,openOrderCount:botOrders.length};}
     const option=await chooseOption(currency,signal.action,signal.price,cfg.maxPremiumUsd);
     if(!option){decision.risk="NO_OPTION_WITHIN_PREMIUM_CAP";return{decision,positionCount:managed.length,openOrderCount:botOrders.length};}
     const label=`CV2-AI-${currency}-${Date.now()}`.slice(0,64);
@@ -216,10 +275,10 @@ async function evaluate(){
   state.tradesToday=(state.tradesToday??[]).filter(item=>String(item.timestamp).startsWith(today));
   const policy=executionPolicy({executionGate,credentials,entryEnabled:cfg.enabled});
   const reconciliationRequired=credentials?(await reconcilePendingOrders())>0:(state.pendingOrders??[]).length>0;
-  const decisions=[],errors=[];
+  const decisions=[],errors=[],strategyContext=loadStrategyContext(Math.min(Number(cfg.minimumIvObservations??288)+1,2_000));
   for(const currency of cfg.currencies){
     try{
-      const result=await evaluateCurrency(currency,cfg,policy,reconciliationRequired||(state.pendingOrders??[]).length>0);
+      const result=await evaluateCurrency(currency,cfg,policy,reconciliationRequired||(state.pendingOrders??[]).length>0,strategyContext);
       decisions.push(result.decision);
       state.currencyPositionCounts[currency]=result.positionCount;
       state.currencyOrderCounts[currency]=result.openOrderCount;

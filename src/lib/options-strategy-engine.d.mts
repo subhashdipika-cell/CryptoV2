@@ -1,0 +1,10 @@
+export type StrategyConfig={enabledStrategies:string[];minimumIvObservations:number;minimumOpenInterest:number;maximumSpreadPct:number;maxDefinedRiskUsd:number;maxMarginUtilizationPct:number;ironCondorIvPercentile:number;shortVolIvPercentile:number;deltaHedgeThreshold:number;eventWindowMinutes:number;maxStrategyHours:number};
+export type StrategyCandidate={id:string;name:string;family:string;risk:string;executionMode:string;autonomousTestnet:boolean;summary:string;enabled:boolean;status:"BLOCKED"|"READY";executionEligible:boolean;blockers:string[];evidence:{currentAtmIv:number|null;ivPercentile:number|null;ivObservations:number;regime:Record<string,unknown>;event:unknown};plan:Record<string,unknown>};
+export const STRATEGY_IDS:readonly string[];
+export const STRATEGY_CATALOG:readonly Record<string,unknown>[];
+export const DEFAULT_OPTIONS_STRATEGY_CONFIG:Readonly<StrategyConfig>;
+export function percentileRank(history:number[],current:number|null):number|null;
+export function snapshotAtmIv(snapshot:unknown):number|null;
+export function classifyRegime(decision?:Record<string,unknown>):Record<string,unknown>;
+export function buildStrategyCandidates(input:{currency:string;snapshot:unknown;ivHistory?:number[];decision?:Record<string,unknown>;events?:Record<string,unknown>[];config?:Partial<StrategyConfig>}):StrategyCandidate[];
+export function strategyExitDecision(input:{strategy:Record<string,unknown>;pnlUsd:number;spot:number;signal?:Record<string,unknown>;ageHours:number;maxStrategyHours:number}):string|null;
