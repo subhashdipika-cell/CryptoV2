@@ -53,9 +53,12 @@ Run the read-only directional proxy backtest with:
 
 ```powershell
 node scripts/run-swing-backtest.mjs --days=730 --summary
+node scripts/run-regime-walkforward.mjs --days=730 --summary
 ```
 
 The strategy is deliberately separate from the autonomous worker and has no routing path. The committed report is visible on the Strategy page. It must clear sample, expectancy, profit-factor, and drawdown gates before Testnet forward testing can be considered; even a passing directional proxy would still require an option-premium replay including IV, delta, theta, spreads, and strike liquidity.
+
+The regime walk-forward report selects from 24 predeclared policies using only the prior 365-day training window, then evaluates the selected policy on the following 91 days. Its options proxy reprices ATM 45-DTE contracts using rolling realized-volatility IV, Black-Scholes theta decay, modeled bid/ask spreads, a liquidity gate, and Deribit's standard option fee cap. Because historical expired-option books and mark-IV surfaces were not recorded, this remains model evidence and cannot authorize routing.
 
 ## Deribit Testnet options
 
