@@ -1,5 +1,6 @@
 export type BotTrade = {
   trade_id: string;
+  order_id?: string;
   timestamp: number;
   label?: string;
   profit_loss?: number;
@@ -30,14 +31,18 @@ function period(trades: BotTrade[], positions: BotPositionPnl[], start: number) 
   const selected = trades.filter(trade => trade.timestamp >= start);
   const realizedUsd = selected.reduce((sum, trade) => sum + tradeNetUsd(trade), 0);
   const unrealizedUsd = positions.reduce((sum, position) => sum + position.floatingPnlUsd, 0);
-  return { totalUsd: realizedUsd + unrealizedUsd, realizedUsd, unrealizedUsd, tradeCount: selected.length } satisfies PnlPeriod;
+  const closedOrders = new Set(selected.filter(trade => String(trade.label).startsWith("CV2-AI-EXIT-")).map(trade => trade.order_id ?? trade.trade_id));
+  return { totalUsd: realizedUsd + unrealizedUsd, realizedUsd, unrealizedUsd, tradeCount: closedOrders.size } satisfies PnlPeriod;
 }
 
 export function calculateBotPerformance(trades: BotTrade[], positions: BotPositionPnl[], now = Date.now()) {
   const instant = new Date(now);
   const dayStart = Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth(), instant.getUTCDate());
   const monthStart = Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth(), 1);
-  const uniqueTrades = [...new Map(trades.filter(trade => String(trade.label).startsWith("CV2-AI-")).map(trade => [trade.trade_id, trade])).values()];
+  const uniqueTrades = [...trades.filter(trade => String(trade.label).startsWith("CV2-AI-")).reduce((seen, trade) => {
+    if (!seen.has(trade.trade_id)) seen.set(trade.trade_id, trade);
+    return seen;
+  }, new Map<string, BotTrade>()).values()];
   return {
     daily: period(uniqueTrades, positions, dayStart),
     monthly: period(uniqueTrades, positions, monthStart),

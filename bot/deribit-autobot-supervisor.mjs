@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const worker = path.join(root, "bot", "deribit-autobot.mjs");
+const worker = path.join(root, "bot", "deribit-autobot-v2.mjs");
 let child;
 let stopping = false;
 let restartCount = 0;

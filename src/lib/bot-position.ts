@@ -5,3 +5,12 @@ export function calculateExitLevels(averagePrice:number, markPrice:number, stopL
   const distanceToTakeProfitPct=markPrice>0?(takeProfitPrice-markPrice)/markPrice*100:0;
   return{stopPrice,takeProfitPrice,pnlPct,distanceToStopPct,distanceToTakeProfitPct};
 }
+
+export function positionPremiumUsd(averagePriceUsd:number|undefined,averagePrice:number,indexPrice:number,size:number){
+  const perContract=Number.isFinite(averagePriceUsd)?Number(averagePriceUsd):averagePrice*indexPrice;
+  return perContract*Math.abs(size);
+}
+
+export function positionGreek(perContract:number|undefined,positionTotal:number|undefined,size:number){
+  return Number.isFinite(perContract)?Number(perContract)*Math.abs(size):positionTotal??null;
+}
