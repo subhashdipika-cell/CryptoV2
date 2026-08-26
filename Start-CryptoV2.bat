@@ -54,6 +54,7 @@ if not exist "node_modules\next\package.json" (
 )
 
 call :ensure_autobot
+call :ensure_option_snapshot_recorder
 call :ensure_mt5_bridge
 
 powershell.exe -NoLogo -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -Uri '%APP_URL%' -TimeoutSec 2; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>&1
@@ -97,6 +98,23 @@ if exist "work\autobot.pid" (
     echo [AI BOT] Worker started. Autonomous order routing remains locked until separately armed.
 ) else (
     echo [WARNING] AI worker did not start. Check work\autobot-error.log.
+)
+exit /b 0
+
+:ensure_option_snapshot_recorder
+if not exist "work" mkdir "work"
+powershell.exe -NoLogo -NoProfile -Command "$pidFile='%~dp0work\option-snapshot.pid'; if (Test-Path $pidFile) { $recorderPid=Get-Content $pidFile -ErrorAction SilentlyContinue; if ($recorderPid -and (Get-Process -Id $recorderPid -ErrorAction SilentlyContinue)) { exit 0 } }; exit 1" >nul 2>&1
+if not errorlevel 1 (
+    echo [OPTION DATA] Read-only Testnet snapshot recorder is already running.
+    exit /b 0
+)
+echo [OPTION DATA] Starting public Deribit Testnet snapshot recorder...
+powershell.exe -NoLogo -NoProfile -Command "$process = Start-Process -FilePath 'node.exe' -ArgumentList @('%~dp0bot\option-snapshot-supervisor.mjs') -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%~dp0work\option-snapshot.log' -RedirectStandardError '%~dp0work\option-snapshot-error.log' -PassThru; $process.Id | Set-Content '%~dp0work\option-snapshot.pid'" >nul 2>&1
+timeout /t 2 /nobreak >nul
+if exist "work\option-snapshot.pid" (
+    echo [OPTION DATA] Recorder started: public data only, no credentials, no order routing.
+) else (
+    echo [WARNING] Option snapshot recorder did not start. Check work\option-snapshot-error.log.
 )
 exit /b 0
 

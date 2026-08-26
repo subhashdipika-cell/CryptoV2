@@ -28,6 +28,7 @@ Open `http://localhost:3000`.
 - Live Deribit Testnet BTC/ETH option chains, OI, IV skew, Greeks, guarded single-leg tickets, native atomic combo builder, and payoff chart
 - Strategy cockpit with risk and execution workflow
 - Non-routable 6-hour swing research engine with completed-candle signals, next-bar execution, cost-aware replay, recent-half validation, and explicit promotion blockers
+- Read-only Deribit Testnet option snapshot archive for real bid/ask, IV, OI, Greeks, and liquidity replay evidence
 - Buffered 100 ms WebSocket client and Web Worker boundary
 - Versioned market and paper-order endpoints with Zod validation
 - Paper-only order ticket and fail-closed API schema
@@ -59,6 +60,12 @@ node scripts/run-regime-walkforward.mjs --days=730 --summary
 The strategy is deliberately separate from the autonomous worker and has no routing path. The committed report is visible on the Strategy page. It must clear sample, expectancy, profit-factor, and drawdown gates before Testnet forward testing can be considered; even a passing directional proxy would still require an option-premium replay including IV, delta, theta, spreads, and strike liquidity.
 
 The regime walk-forward report selects from 24 predeclared policies using only the prior 365-day training window, then evaluates the selected policy on the following 91 days. Its options proxy reprices ATM 45-DTE contracts using rolling realized-volatility IV, Black-Scholes theta decay, modeled bid/ask spreads, a liquidity gate, and Deribit's standard option fee cap. Because historical expired-option books and mark-IV surfaces were not recorded, this remains model evidence and cannot authorize routing.
+
+### Read-only option snapshot archive
+
+`Start-CryptoV2.bat` also starts a hidden, supervised market-data recorder. Every five minutes it samples paired calls and puts around the BTC and ETH at-the-money strikes for the two nearest expiries between 7 and 60 days. It records actual Testnet bid/ask prices and sizes, marks, IV, open interest, volume, interest rates, and ticker Greeks under `work\option-snapshots\YYYY-MM-DD.jsonl`.
+
+The recorder calls public Deribit Testnet methods only. It never reads credentials and has no private API or order-routing method. Runtime health and archive coverage are available at `GET /api/v1/autobot/option-snapshots` and on the Strategy page. Set `DERIBIT_OPTION_SNAPSHOT_INTERVAL_MS` to change the interval; values below 60 seconds are rejected.
 
 ## Deribit Testnet options
 
