@@ -1,6 +1,7 @@
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { DEFAULT_OPTIONS_STRATEGY_CONFIG, STRATEGY_IDS } from "./options-strategy-engine.mjs";
 
@@ -8,6 +9,7 @@ const runtime = path.join(process.cwd(), "work", "autobot");
 const configPath = path.join(runtime, "config.json");
 const statePath = path.join(runtime, "state.json");
 const journalPath = path.join(runtime, "journal.jsonl");
+const restartPath = path.join(runtime, "hot-restart.json");
 export const defaultBotConfig = { enabled:false, currencies:["BTC","ETH"], minimumScore:75, maxPremiumUsd:50, maxDailyTrades:4, cooldownMinutes:120, stopLossPct:30, takeProfitPct:50, ...DEFAULT_OPTIONS_STRATEGY_CONFIG };
 export const botConfigSchema = z.object({
   enabled:z.boolean(), currencies:z.array(z.enum(["BTC","ETH"])).min(1).max(2), minimumScore:z.number().int().min(65).max(95),
@@ -22,13 +24,28 @@ export const botConfigSchema = z.object({
 async function readJson(file:string,fallback:unknown){try{return JSON.parse(await fs.readFile(file,"utf8"));}catch{return fallback;}}
 export async function getBotConfig(){return{...defaultBotConfig,...await readJson(configPath,defaultBotConfig)};}
 export async function getBotStatus(){
-  const [config,state,journalText]=await Promise.all([getBotConfig(),readJson(statePath,{}),fs.readFile(journalPath,"utf8").catch(()=>"")]);
+  const [config,state,restart,journalText]=await Promise.all([getBotConfig(),readJson(statePath,{}),readJson(restartPath,null),fs.readFile(journalPath,"utf8").catch(()=>"")]);
   const journal=journalText.trim().split(/\r?\n/).filter(Boolean).slice(-50).reverse().map(line=>{try{return JSON.parse(line);}catch{return{type:"INVALID_JOURNAL_LINE"};}});
   const heartbeat=typeof (state as {lastHeartbeat?:unknown}).lastHeartbeat==="string"?Date.parse((state as {lastHeartbeat:string}).lastHeartbeat):0;
-  return{environment:"DERIBIT_TESTNET",config,state:{...(state as object),workerOnline:Date.now()-heartbeat<30_000},journal,safety:{productionRoutingAvailable:false,executionEnvironmentLocked:true,serverExecutionGate:process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING==="true"}};
+  return{environment:"DERIBIT_TESTNET",config,state:{...(state as object),workerOnline:Date.now()-heartbeat<30_000},restart,journal,safety:{productionRoutingAvailable:false,executionEnvironmentLocked:true,serverExecutionGate:process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING==="true"}};
 }
 export async function saveBotConfig(value:unknown){
   const parsed=botConfigSchema.parse(value); if(parsed.enabled&&(process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING!=="true"||parsed.confirmation!=="ENABLE DERIBIT TESTNET AUTOBOT"))throw new Error("AUTOBOT_TESTNET_ACTIVATION_REQUIRED");
   const {confirmation:_,...config}=parsed;void _;await fs.mkdir(runtime,{recursive:true});const temp=`${configPath}.${process.pid}.tmp`;await fs.writeFile(temp,JSON.stringify(config,null,2));await fs.rename(temp,configPath);return config;
 }
 export async function haltBot(){const current=await getBotConfig();return saveBotConfig({...current,enabled:false});}
+
+export async function requestBotHotRestart(value:unknown){
+  const confirmation=(value as {confirmation?:unknown})?.confirmation;
+  if(confirmation!=="HOT RESTART DERIBIT TESTNET")throw new Error("HOT_RESTART_CONFIRMATION_REQUIRED");
+  const state=await readJson(statePath,{}) as Record<string,unknown>;
+  if(state.environment!=="DERIBIT_TESTNET")throw new Error("HOT_RESTART_TESTNET_ONLY");
+  const heartbeat=typeof state.lastHeartbeat==="string"?Date.parse(state.lastHeartbeat):0;
+  if(Date.now()-heartbeat>=30_000||state.workerOnline!==true)throw new Error("WORKER_NOT_HEALTHY");
+  if(state.exitManagementActive!==true||state.degraded===true||state.reconciliationRequired===true||state.error)throw new Error("WORKER_SAFETY_GATE_FAILED");
+  if(state.evaluationInFlight===true||(Array.isArray(state.pendingOrders)&&state.pendingOrders.length>0)||Number(state.openOrderCount??0)!==0)throw new Error("WORKER_NOT_READY_TO_DRAIN");
+  const existing=await readJson(restartPath,null) as {phase?:string}|null;
+  if(existing&&!['ACTIVE','FAILED','ROLLED_BACK'].includes(String(existing.phase)))throw new Error(`HOT_RESTART_ALREADY_${existing.phase??'IN_PROGRESS'}`);
+  const request={protocolVersion:1,restartId:randomUUID(),phase:"REQUESTED",reason:"USER_APPROVED_HOT_RESTART",requestedAt:new Date().toISOString(),requestedWorkerPid:state.pid,managedInstruments:Array.isArray(state.managedInstruments)?state.managedInstruments:[]};
+  await fs.mkdir(runtime,{recursive:true});const temp=`${restartPath}.${process.pid}.tmp`;await fs.writeFile(temp,JSON.stringify(request,null,2));await fs.rename(temp,restartPath);return request;
+}

@@ -39,6 +39,12 @@ Open `http://localhost:3000`.
 
 The autonomous worker is hard-coded to Deribit Testnet and has no production URL or real-money route. It starts disabled and requires both `DERIBIT_AUTOBOT_TESTNET_ROUTING=true` and an explicit cockpit activation phrase. Strategy signals are not profitability evidence or financial advice. Validate in monitoring and Testnet forward testing before changing any policy.
 
+### Guarded hot restart
+
+The Settings page can restart the autonomous worker while bot-owned Testnet positions remain open. Type `HOT RESTART DERIBIT TESTNET` and use **Start Guarded Hot Restart**. The restart protocol blocks new entries, lets the active evaluation finish, requires zero pending/resting bot orders and clear reconciliation, then preflights Deribit position ownership before stopping the original PID. The replacement worker must reconcile the same managed positions, report active exit management, and pass a fresh heartbeat before entries resume. A failed preflight rolls back without stopping the original worker; a replacement readiness failure remains fail-closed for new entries.
+
+The same operation is available locally with `npm.cmd run hot-restart`. It subsequently rolls the read-only option snapshot recorder and verifies its new PID and heartbeat. Neither path manually closes, modifies, or cancels a position.
+
 ## MT5 connection
 
 `Start-CryptoV2.bat` starts a loopback-only Python bridge at `127.0.0.1:8765` and connects to `D:\MT5IntelliTrade\terminal64.exe` by default. The dashboard then refreshes MT5 balance, equity, floating P&L, margin, positions, pending orders, and closed-deal balance history every five seconds.

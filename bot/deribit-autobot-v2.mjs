@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dailyTradeCountForCurrency, evaluateSignal, executionPolicy, riskDecision } from "./engine.mjs";
 import { errorMessage, filledAmount, findActivePosition, isAmbiguousTransportError } from "./order-state.mjs";
 import { atomicWriteJson } from "./state-store.mjs";
+import { blocksEntries, canDeclareDrained, canDeclareReady, readRestart, RESTART_PHASES, writeRestart } from "./hot-restart-protocol.mjs";
 import { buildStrategyCandidates, DEFAULT_OPTIONS_STRATEGY_CONFIG, snapshotAtmIv, strategyExitDecision } from "../src/lib/options-strategy-engine.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,6 +13,7 @@ const CONFIG_PATH = path.join(RUNTIME, "config.json");
 const STATE_PATH = path.join(RUNTIME, "state.json");
 const JOURNAL_PATH = path.join(RUNTIME, "journal.jsonl");
 const EVENTS_PATH = path.join(RUNTIME, "events.json");
+const RESTART_PATH = path.join(RUNTIME, "hot-restart.json");
 const SNAPSHOT_RUNTIME = path.join(ROOT, "work", "option-snapshots");
 const TESTNET = "https://test.deribit.com/api/v2";
 const RPC_TIMEOUT_MS = 15_000;
@@ -48,6 +50,11 @@ state.totalErrorCycles ??= 0;
 state.consecutiveErrorCycles ??= 0;
 let token = null;
 let cycleInFlight = false;
+let stopping = false;
+let drainMode = Boolean(process.env.CRYPTOV2_HOT_RESTART_ID) || blocksEntries(readRestart(RESTART_PATH),process.pid);
+let cycleTimer;
+let heartbeatTimer;
+let restartTimer;
 
 function loadStrategyContext(limit=2_000){
   const snapshots=[];
@@ -273,7 +280,7 @@ async function evaluate(){
   const cfg=config(),executionGate=process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING==="true",credentials=Boolean(process.env.DERIBIT_TESTNET_CLIENT_ID&&process.env.DERIBIT_TESTNET_CLIENT_SECRET);
   const today=new Date().toISOString().slice(0,10);
   state.tradesToday=(state.tradesToday??[]).filter(item=>String(item.timestamp).startsWith(today));
-  const policy=executionPolicy({executionGate,credentials,entryEnabled:cfg.enabled});
+  const policy=executionPolicy({executionGate,credentials,entryEnabled:cfg.enabled&&!drainMode});
   const reconciliationRequired=credentials?(await reconcilePendingOrders())>0:(state.pendingOrders??[]).length>0;
   const decisions=[],errors=[],strategyContext=loadStrategyContext(Math.min(Number(cfg.minimumIvObservations??288)+1,2_000));
   for(const currency of cfg.currencies){
@@ -292,7 +299,7 @@ async function evaluate(){
     }
   }
   const now=new Date().toISOString(),error=errors.length?errors.join(" | "):null;
-  state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,executionGate,configured:credentials,enabled:policy.allowEntries,exitManagementActive:policy.manageExits,lastHeartbeat:now,lastEvaluation:now,nextEvaluation:new Date(Date.now()+60_000).toISOString(),decisions,positionCount:Object.values(state.currencyPositionCounts).reduce((sum,value)=>sum+Number(value??0),0),openOrderCount:Object.values(state.currencyOrderCounts).reduce((sum,value)=>sum+Number(value??0),0),error,degraded:Boolean(error||reconciliationRequired),reconciliationRequired,pid:process.pid,evaluationInFlight:false};
+  state={...state,environment:"DERIBIT_TESTNET",workerOnline:true,executionGate,configured:credentials,enabled:policy.allowEntries,acceptingEntries:policy.allowEntries,restartMode:drainMode,exitManagementActive:policy.manageExits,lastHeartbeat:now,lastEvaluation:now,nextEvaluation:new Date(Date.now()+60_000).toISOString(),decisions,positionCount:Object.values(state.currencyPositionCounts).reduce((sum,value)=>sum+Number(value??0),0),openOrderCount:Object.values(state.currencyOrderCounts).reduce((sum,value)=>sum+Number(value??0),0),error,degraded:Boolean(error||reconciliationRequired),reconciliationRequired,pid:process.pid,evaluationInFlight:false};
   if(error){state.totalErrorCycles=Number(state.totalErrorCycles??0)+1;state.consecutiveErrorCycles=Number(state.consecutiveErrorCycles??0)+1;}
   else{state.consecutiveErrorCycles=0;state.lastSuccessfulEvaluation=now;}
   persistState("EVALUATION");
@@ -306,9 +313,59 @@ async function cycle(){
   finally{cycleInFlight=false;state.evaluationInFlight=false;}
 }
 
+async function restartControl(){
+  if(stopping)return;
+  let request=readRestart(RESTART_PATH);
+  const replacement=Boolean(process.env.CRYPTOV2_HOT_RESTART_ID);
+  drainMode=replacement||blocksEntries(request,process.pid);
+  if(!request)return;
+  if(request.phase===RESTART_PHASES.REQUESTED){
+    writeRestart(RESTART_PATH,{...request,phase:RESTART_PHASES.DRAINING,drainingWorkerPid:process.pid,drainingAt:new Date().toISOString()});
+    journal({type:"HOT_RESTART_DRAINING",restartId:request.restartId,pid:process.pid});
+    request=readRestart(RESTART_PATH);
+  }
+  if(request?.phase===RESTART_PHASES.DRAINING&&Number(request.drainingWorkerPid)===Number(process.pid)){
+    if(!cycleInFlight)await cycle();
+    request=readRestart(RESTART_PATH);
+    if(request?.phase===RESTART_PHASES.DRAINING&&canDeclareDrained(state)){
+      writeRestart(RESTART_PATH,{...request,phase:RESTART_PHASES.DRAINED,drainedWorkerPid:process.pid,drainedAt:new Date().toISOString(),managedInstruments:[...(state.managedInstruments??[])],positionCount:Number(state.positionCount??0),openOrderCount:Number(state.openOrderCount??0)});
+      journal({type:"HOT_RESTART_DRAINED",restartId:request.restartId,pid:process.pid,managedInstruments:state.managedInstruments??[]});
+    }
+    return;
+  }
+  if(request?.phase===RESTART_PHASES.STARTING&&Number(request.replacementPid)===Number(process.pid)){
+    if(!cycleInFlight)await cycle();
+    request=readRestart(RESTART_PATH);
+    if(request?.phase===RESTART_PHASES.STARTING&&canDeclareReady(state,process.pid,request)){
+      writeRestart(RESTART_PATH,{...request,phase:RESTART_PHASES.READY,verifiedWorkerPid:process.pid,verifiedAt:new Date().toISOString(),managedInstruments:[...(state.managedInstruments??[])],positionCount:Number(state.positionCount??0),openOrderCount:Number(state.openOrderCount??0)});
+      journal({type:"HOT_RESTART_READY",restartId:request.restartId,pid:process.pid,managedInstruments:state.managedInstruments??[]});
+    }
+    return;
+  }
+  if(request?.phase===RESTART_PHASES.ACTIVE&&Number(request.activeWorkerPid)===Number(process.pid)){
+    drainMode=false;
+    process.env.CRYPTOV2_HOT_RESTART_ID="";
+  }
+}
+
+async function shutdown(signal){
+  if(stopping)return;
+  stopping=true;
+  clearInterval(cycleTimer);clearInterval(heartbeatTimer);clearInterval(restartTimer);
+  const deadline=Date.now()+30_000;
+  while(cycleInFlight&&Date.now()<deadline)await delay(100);
+  state={...state,workerOnline:false,acceptingEntries:false,evaluationInFlight:cycleInFlight,lastHeartbeat:new Date().toISOString(),shutdownSignal:signal};
+  persistState("WORKER_STOPPED");
+  journal({type:"WORKER_STOPPED",pid:process.pid,signal,evaluationInFlight:cycleInFlight});
+  process.exit(cycleInFlight?1:0);
+}
+
 if(!fs.existsSync(CONFIG_PATH))atomicWriteJson(CONFIG_PATH,DEFAULT_CONFIG);
 loadEnv();
 journal({type:"WORKER_STARTED",pid:process.pid,executionGate:process.env.DERIBIT_AUTOBOT_TESTNET_ROUTING==="true",version:"v2"});
 await cycle();
-setInterval(()=>void cycle(),60_000);
-setInterval(()=>{state.lastHeartbeat=new Date().toISOString();state.workerOnline=true;persistState("HEARTBEAT");},10_000);
+cycleTimer=setInterval(()=>void cycle(),60_000);
+heartbeatTimer=setInterval(()=>{state.lastHeartbeat=new Date().toISOString();state.workerOnline=true;state.restartMode=drainMode;persistState("HEARTBEAT");},10_000);
+restartTimer=setInterval(()=>void restartControl(),1_000);
+process.on("SIGINT",()=>void shutdown("SIGINT"));
+process.on("SIGTERM",()=>void shutdown("SIGTERM"));
