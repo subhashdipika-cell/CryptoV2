@@ -19,7 +19,7 @@ if errorlevel 1 (
     echo [ERROR] Node.js is not installed or is not available in PATH.
     echo Install Node.js 20.9 or newer, then run this file again.
     echo.
-    pause
+    if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
     exit /b 1
 )
 
@@ -28,16 +28,21 @@ if errorlevel 1 (
     echo [ERROR] npm.cmd is not available in PATH.
     echo Repair the Node.js installation, then run this file again.
     echo.
-    pause
+    if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
     exit /b 1
 )
 
 for /f "tokens=1 delims=." %%V in ('node -p "process.versions.node"') do set "NODE_MAJOR=%%V"
+if not defined NODE_MAJOR (
+    echo [ERROR] Unable to determine the installed Node.js version.
+    if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
+    exit /b 1
+)
 if %NODE_MAJOR% LSS 20 (
     echo [ERROR] Node.js 20.9 or newer is required. Detected version:
     node --version
     echo.
-    pause
+    if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
     exit /b 1
 )
 
@@ -47,7 +52,7 @@ if not exist "node_modules\next\package.json" (
     if errorlevel 1 (
         echo.
         echo [ERROR] Dependency installation failed.
-        pause
+        if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
         exit /b 1
     )
     echo.
@@ -79,14 +84,14 @@ set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
     echo.
     echo [ERROR] CryptoV2 stopped with exit code %APP_EXIT%.
-    pause
+    if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
 )
 
 exit /b %APP_EXIT%
 
 :ensure_autobot
 if not exist "work" mkdir "work"
-powershell.exe -NoLogo -NoProfile -Command "$pidFile='%~dp0work\autobot.pid'; if (Test-Path $pidFile) { $botPid=Get-Content $pidFile -ErrorAction SilentlyContinue; if ($botPid -and (Get-Process -Id $botPid -ErrorAction SilentlyContinue)) { exit 0 } }; exit 1" >nul 2>&1
+powershell.exe -NoLogo -NoProfile -Command "$pidFile='%~dp0work\autobot.pid'; if (Test-Path $pidFile) { $botPid=Get-Content $pidFile -ErrorAction SilentlyContinue; if ($botPid -match '^\d+$') { $p=Get-CimInstance Win32_Process -Filter \"ProcessId=$botPid\" -ErrorAction SilentlyContinue; if ($p.CommandLine -match 'deribit-autobot-supervisor[.]mjs') { exit 0 } } }; exit 1" >nul 2>&1
 if not errorlevel 1 (
     echo [AI BOT] Autonomous worker is already running.
     exit /b 0
@@ -103,7 +108,7 @@ exit /b 0
 
 :ensure_option_snapshot_recorder
 if not exist "work" mkdir "work"
-powershell.exe -NoLogo -NoProfile -Command "$pidFile='%~dp0work\option-snapshot.pid'; if (Test-Path $pidFile) { $recorderPid=Get-Content $pidFile -ErrorAction SilentlyContinue; if ($recorderPid -and (Get-Process -Id $recorderPid -ErrorAction SilentlyContinue)) { exit 0 } }; exit 1" >nul 2>&1
+powershell.exe -NoLogo -NoProfile -Command "$pidFile='%~dp0work\option-snapshot.pid'; if (Test-Path $pidFile) { $recorderPid=Get-Content $pidFile -ErrorAction SilentlyContinue; if ($recorderPid -match '^\d+$') { $p=Get-CimInstance Win32_Process -Filter \"ProcessId=$recorderPid\" -ErrorAction SilentlyContinue; if ($p.CommandLine -match 'option-snapshot-supervisor[.]mjs') { exit 0 } } }; exit 1" >nul 2>&1
 if not errorlevel 1 (
     echo [OPTION DATA] Read-only Testnet snapshot recorder is already running.
     exit /b 0
